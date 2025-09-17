@@ -1,0 +1,16 @@
+[project]
+name = "kimi-k2-crewai"
+version = "0.1.0"
+description = "Local CrewAI + MCP + vLLM (Kimi K2) setup"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "crewai>=0.186.1",
+    "crewai-tools[mcp]>=0.71.0",
+    "fastmcp>=2.12.3",
+    "openai>=1.107.3",
+    "playwright>=1.55.0",
+    "starlette-context>=0.4.0",
+]
+[tool.uv]
+# optional: ensures uv syncs with GPU / CUDA libs properly
