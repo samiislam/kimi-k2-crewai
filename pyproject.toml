@@ -10,7 +10,6 @@ dependencies = [
     "fastmcp>=2.12.3",
     "openai>=1.107.3",
     "playwright>=1.55.0",
-    "starlette-context>=0.4.0",
 ]
-[tool.uv]
-# optional: ensures uv syncs with GPU / CUDA libs properly
+[tool.uv.pip]
+torch-backend = "auto"

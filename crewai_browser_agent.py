@@ -2,20 +2,48 @@ from crewai import Agent, Crew, Task, LLM
 from crewai_tools import MCPServerAdapter
 from mcp import StdioServerParameters
 import os
+import litellm
+import pprint
 
-# Wrap llm using LiteLLM via CrewAI's LLM wrapper (expects an OpenAI-compatible endpoint)
-# Example: run a local llama.cpp server
-# First try via python - FAILED
-#   python -m llama_cpp.server --model .\models\Kimi-K2-Instruct-Q2_K-00001-of-00008.gguf --host 127.0.0.1 --port 8000 --n_gpu_layers -1 --n_threads 8 --n_ctx 4096
+# Save original completion function
+litellm.completion_original = litellm.completion
 
-# Second try
-# llama-server.exe -m .\models\Q2_K\Kimi-K2-Instruct-Q2_K-00001-of-00008.gguf --host 127.0.0.1 --port 8000 --threads 16 --n-gpu-layers 30 --ctx-size 16384 --seed 3407 --temp 0.6 --min-p 0.01 --cache-type-k q4_0 -ot ".ffn_.*_exps.=CPU"
+def safe_completion(**kwargs):
+    if "messages" in kwargs:
+        messages = kwargs["messages"]
+
+        # Log messages before cleanup
+        print("\n[DEBUG] Messages before cleanup:")
+        pprint.pprint(messages)
+
+        # Remove consecutive assistant messages at the end
+        while len(messages) > 1 and messages[-1]["role"] == "assistant" and messages[-2]["role"] == "assistant":
+            removed = messages.pop(-2)
+            print(f"[DEBUG] Removed duplicate assistant message: {removed}")
+
+        kwargs["messages"] = messages
+
+    # Call the original litellm completion
+    result = litellm.completion_original(**kwargs)
+
+    # Optional: log the result
+    print("\n[DEBUG] LLM result:")
+    pprint.pprint(result)
+
+    return result
+
+
+# Replace litellm.completion with our safe wrapper
+litellm.completion = safe_completion
+
+# Try this first: llama-server.exe -m .\models\Q2_K\Kimi-K2-Instruct-Q2_K-00001-of-00008.gguf --host 127.0.0.1 --port 8000 --threads -1 --n-gpu-layers -1 --ctx-size 16384 --seed 3407 --temp 0.6 --min-p 0.01 --no-flash-attn --no-mmap
+# If that fails, try: llama-server.exe -m .\models\UD-TQ1_0\Kimi-K2-Instruct-UD-TQ1_0-00001-of-00005.gguf --host 127.0.0.1 --port 8000 --threads -1 --n-gpu-layers -1 --ctx-size 16384 --seed 3407 --temp 0.6 --min-p 0.01
+# Point to your llama.cpp server running on localhost:8000
 llm = LLM(
-    model=os.getenv("LLM_MODEL", "llama-cpp"),
-    base_url=os.getenv("LLM_BASE_URL", "http://127.0.0.1:8000/v1"),
-    api_key=os.getenv("LLM_API_KEY", "NA"),
-    temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
-    max_tokens=int(os.getenv("LLM_MAX_TOKENS", "1024")),
+    model="openai/local-llama",   # Use openai/ prefix for local OpenAI-compatible server
+    base_url="http://127.0.0.1:8001/v1",  # llama-server uses OpenAI-style /v1 routes
+    api_key="none",             # llama.cpp doesn't check API keys
+    provider="openai",
 )
 
 # Connect to your FastMCP Chrome server
@@ -39,14 +67,14 @@ with MCPServerAdapter(server_params) as tools:
         goal="Open pages and summarize content",
         backstory="Autonomous agent using Chrome browsing tools",
         llm=llm,
-        #adapters=[chrome_adapter],  # attach MCP server adapter
         tools=tools,
         verbose=True,
     )
 
     task = Task(
-        description="Open https://example.com, extract structured content, and summarize it.",
-        agent=browser_agent
+        description="Open {website}, extract structured content, and summarize it.",
+        agent=browser_agent,
+        expected_output="Summary of the web site"
     )
 
     crew = Crew(
@@ -55,7 +83,7 @@ with MCPServerAdapter(server_params) as tools:
         verbose=True,
         )
 
-    result = crew.kickoff(inputs={"website": "open_url(https://www.heise.de/)"})
+    result = crew.kickoff(inputs={"website": "https://www.heise.de"})
     print(result)
 
 #if __name__ == "__main__":
